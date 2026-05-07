@@ -284,8 +284,6 @@ export const PRESETS = [
   { name:"Lime",    color:"#b0d000", step:"50" },
   { name:"Coral",   color:"#ff978f", step:"50" },
   { name:"Emerald", color:"#00ce91", step:"50" },
-  { name:"Custoasm", color:"#6366f1", step:"50" },
-  { name:"Custom color", color:"#6366f1", step:"50" },
 ];
 
 // Pre-computed OKLCH H for each preset base-50 color — used for family classification
