@@ -161,7 +161,7 @@ const CTRL_H = 86;
 
 function PaletteHeader({
   id, name, color, step, algo, source,
-  onUpdate, onRemove,
+  onUpdate, onRemove, onSaveToCode,
   isDragging, isDragOver,
   onDragStart, onDragOver, onDrop, onDragEnd,
 }) {
@@ -320,6 +320,116 @@ function PaletteHeader({
 
       {/* ── OKLCH badge ── */}
       <OKLCHBadge hex={color} />
+
+      {/* ── Save to codebase (custom only) ── */}
+      {isCustom && (
+        <button
+          onClick={e => { e.stopPropagation(); onSaveToCode?.(); }}
+          draggable={false}
+          onMouseDown={e => e.stopPropagation()}
+          title="Generate the code snippet to add this color permanently to colorData.js"
+          style={{
+            marginTop: 8, width: "100%", padding: "5px 0", fontSize: 9.5, fontWeight: 600,
+            fontFamily: "'SF Mono',monospace", letterSpacing: "0.03em",
+            background: "#f0fdf4", color: "#16a34a",
+            border: "1px solid #bbf7d0", borderRadius: 7, cursor: "pointer",
+            transition: "background 0.15s, border-color 0.15s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = "#dcfce7"; e.currentTarget.style.borderColor = "#86efac"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "#f0fdf4"; e.currentTarget.style.borderColor = "#bbf7d0"; }}
+        >
+          ↑ Save to codebase
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Save to Codebase Modal ───────────────────────────────────────────────────
+
+function SaveCodeModal({ palette, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  const presetLine = `  { name: "${palette.name}", color: "${palette.color}", step: "${palette.step}" },`;
+  const gitCmd = `git add src/colorData.js && git commit -m "Add ${palette.name} preset" && git push`;
+
+  function copyAll() {
+    navigator.clipboard?.writeText(presetLine);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: 520, maxWidth: "90vw", boxShadow: "0 24px 60px rgba(0,0,0,0.2)", fontFamily: "system-ui,-apple-system,sans-serif" }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#111", marginBottom: 4 }}>Save to Codebase</div>
+            <div style={{ fontSize: 12, color: "#999", lineHeight: 1.5 }}>
+              localStorage only saves in <em>this browser</em>. To make <strong>{palette.name}</strong> visible everywhere, add it to the source code and push.
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#999", fontSize: 20, lineHeight: 1, marginLeft: 12 }}>×</button>
+        </div>
+
+        {/* Color preview strip */}
+        <div style={{ display: "flex", gap: 3, marginBottom: 20, borderRadius: 8, overflow: "hidden" }}>
+          {palette.swatches.map(sw => (
+            <div key={sw.step} style={{ flex: 1, height: 28, background: sw.hex, title: sw.hex }} title={`${sw.step}: ${sw.hex}`} />
+          ))}
+        </div>
+
+        {/* Step 1 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8, fontFamily: "'SF Mono',monospace" }}>
+            Step 1 — Add to <code style={{ background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>src/colorData.js</code>
+          </div>
+          <div style={{ fontSize: 10, color: "#888", marginBottom: 6 }}>
+            Inside the <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 10 }}>PRESETS</code> array:
+          </div>
+          <div style={{ position: "relative", background: "#f8f8f8", borderRadius: 8, border: "1px solid #eee", padding: "12px 14px" }}>
+            <pre style={{ margin: 0, fontSize: 11, fontFamily: "'SF Mono',monospace", color: "#333", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+{`export const PRESETS = [
+  // ... existing entries ...
+${presetLine}
+];`}
+            </pre>
+            <button
+              onClick={copyAll}
+              style={{
+                position: "absolute", top: 8, right: 8,
+                padding: "4px 10px", fontSize: 10, fontWeight: 600,
+                borderRadius: 6, border: "1px solid #e5e5e5",
+                background: copied ? "#dcfce7" : "#fff",
+                color: copied ? "#16a34a" : "#666",
+                cursor: "pointer", transition: "all 0.15s",
+                fontFamily: "'SF Mono',monospace",
+              }}
+            >
+              {copied ? "✓ Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+
+        {/* Step 2 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8, fontFamily: "'SF Mono',monospace" }}>
+            Step 2 — Commit & push
+          </div>
+          <div style={{ background: "#111", borderRadius: 8, padding: "12px 14px" }}>
+            <pre style={{ margin: 0, fontSize: 11, fontFamily: "'SF Mono',monospace", color: "#86efac", lineHeight: 1.8 }}>{gitCmd}</pre>
+          </div>
+        </div>
+
+        {/* Note */}
+        <div style={{ padding: "10px 14px", background: "#fffbeb", borderRadius: 8, border: "1px solid #fde68a" }}>
+          <div style={{ fontSize: 11, color: "#92400e", lineHeight: 1.6 }}>
+            <strong>Or just tell me</strong> — paste this color into a message and I'll add it to <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11 }}>colorData.js</code>, commit, and push for you.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -448,9 +558,10 @@ export default function PalettePage() {
   const [palettes, setPalettes] = useState(initPalettes);
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
-  const [showAnalysis, setShowAnalysis] = useState(false);
-  const [showExport, setShowExport]     = useState(false);
-  const [alignedMode, setAlignedMode]   = useState(false);
+  const [showAnalysis, setShowAnalysis]   = useState(false);
+  const [showExport, setShowExport]       = useState(false);
+  const [alignedMode, setAlignedMode]     = useState(false);
+  const [saveCodePalette, setSaveCodePalette] = useState(null);
 
   const allSwatches = useMemo(() =>
     palettes.map(p => ({ ...p, swatches: generatePalette(p.color, p.step, p.algo ?? "auto") })),
@@ -556,6 +667,7 @@ export default function PalettePage() {
               onDragEnd={() => { setDragId(null); setDragOverId(null); }}
               onUpdate={updatePalette}
               onRemove={removePalette}
+              onSaveToCode={p.source === "custom" ? () => setSaveCodePalette(p) : undefined}
             />
           ))}
         </div>
@@ -655,6 +767,7 @@ export default function PalettePage() {
       </div>
 
       {showExport && <ExportModal allSwatches={allSwatches} onClose={() => setShowExport(false)} />}
+      {saveCodePalette && <SaveCodeModal palette={saveCodePalette} onClose={() => setSaveCodePalette(null)} />}
     </div>
   );
 }
