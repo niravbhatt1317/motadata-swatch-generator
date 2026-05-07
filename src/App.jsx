@@ -138,6 +138,16 @@ function NavLink({ active, onClick, children }) {
 export default function App() {
   const [page, setPage] = useState("palette");
 
+  // Strip cache-bust param from address bar without reloading
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.has("_cb")) {
+      p.delete("_cb");
+      const clean = window.location.pathname + (p.toString() ? "?" + p.toString() : "");
+      window.history.replaceState(null, "", clean);
+    }
+  }, []);
+
   const wantsDevFromURL = new URLSearchParams(window.location.search).has("dev");
 
   // Immediately unlock if URL has ?dev AND session was already authed

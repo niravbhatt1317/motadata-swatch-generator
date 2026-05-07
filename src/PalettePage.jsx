@@ -396,17 +396,24 @@ function SaveCodeModal({ palette, onClose }) {
     setStatus("saving");
     try {
       await pushPresetToGitHub(palette.name, palette.color, palette.step);
-      setStatus("saved");
-      // Drop saved palette state — fresh PRESETS will load on reload
+      // Drop saved palette state so fresh PRESETS load on next reload
       try {
         localStorage.removeItem("my-palette-palettes");
         localStorage.removeItem("my-palette-version");
       } catch {}
-      setTimeout(() => window.location.reload(), 2200);
+      setStatus("saved");
     } catch (e) {
       setErrMsg(e.message);
       setStatus("error");
     }
+  }
+
+  function hardReload() {
+    // Add a cache-bust param so the browser always fetches the latest index.html
+    const url = new URL(window.location.href);
+    url.searchParams.delete("_cb");
+    url.searchParams.set("_cb", Date.now());
+    window.location.href = url.toString();
   }
 
   const busy = status === "saving";
@@ -460,10 +467,49 @@ function SaveCodeModal({ palette, onClose }) {
 
         {/* Saved */}
         {status === "saved" && (
-          <div style={{ textAlign: "center", padding: "24px 0" }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#16a34a", marginBottom: 6 }}>Committed & pushed!</div>
-            <div style={{ fontSize: 12, color: "#aaa" }}>GitHub is deploying (~2 min). Reloading…</div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+              <span style={{ fontSize: 20 }}>✅</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d" }}>Committed to GitHub!</div>
+                <div style={{ fontSize: 11, color: "#16a34a", marginTop: 2 }}>
+                  <a href={`https://github.com/${GH_OWNER}/${GH_REPO}/actions`} target="_blank" rel="noreferrer"
+                    style={{ color: "#16a34a" }}>View deployment →</a>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.7, marginBottom: 18 }}>
+              GitHub Actions is rebuilding the site. This usually takes <strong>~2 minutes</strong>.
+              Once it's done, click <strong>Reload</strong> to see <strong>{palette.name}</strong> as a permanent preset.
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <a
+                href={`https://github.com/${GH_OWNER}/${GH_REPO}/actions`}
+                target="_blank" rel="noreferrer"
+                style={{
+                  flex: 1, padding: "9px 0", fontSize: 12, fontWeight: 600, textAlign: "center",
+                  borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff",
+                  color: "#555", textDecoration: "none", display: "block",
+                }}
+              >
+                Check Actions
+              </a>
+              <button
+                onClick={hardReload}
+                style={{
+                  flex: 2, padding: "9px 0", fontSize: 12, fontWeight: 700,
+                  borderRadius: 8, border: "none", background: "#111", color: "#fff", cursor: "pointer",
+                }}
+              >
+                Reload (cache-busted) →
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, fontSize: 10, color: "#ccc", textAlign: "center", fontFamily: "'SF Mono',monospace" }}>
+              reload bypasses browser cache — always loads the latest build
+            </div>
           </div>
         )}
 
