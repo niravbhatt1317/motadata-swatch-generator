@@ -161,15 +161,14 @@ const CTRL_H = 86;
 
 function PaletteHeader({
   id, name, color, step, algo, source,
-  onUpdate, onRemove, onSaveToCode,
+  onUpdate,
   isDragging, isDragOver,
   onDragStart, onDragOver, onDrop, onDragEnd,
 }) {
   const [hexInput, setHexInput] = useState(color);
   useEffect(() => { setHexInput(color); }, [color]);
 
-  const isRef    = source === "ref";
-  const isCustom = source === "custom";
+  const isRef = source === "ref";
 
   function handleHex(val) {
     setHexInput(val);
@@ -228,26 +227,6 @@ function PaletteHeader({
           <span title="Exact reference values — locked" style={{ fontSize: 8, background: "#e8f5e9", color: "#2e7d32", borderRadius: 4, padding: "1px 5px", fontFamily: "'SF Mono',monospace", fontWeight: 700, flexShrink: 0 }}>
             ref
           </span>
-        )}
-        {isCustom && (
-          <span title="User-added custom color — auto-saved" style={{ fontSize: 8, background: "#eff6ff", color: "#1d4ed8", borderRadius: 4, padding: "1px 5px", fontFamily: "'SF Mono',monospace", fontWeight: 700, flexShrink: 0 }}>
-            custom
-          </span>
-        )}
-        {isCustom && (
-          <button
-            onClick={e => { e.stopPropagation(); onRemove(id); }}
-            draggable={false}
-            onMouseDown={e => e.stopPropagation()}
-            title="Delete custom color"
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#ddd", padding: "0 1px", lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center" }}
-            onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
-            onMouseLeave={e => e.currentTarget.style.color = "#ddd"}
-          >
-            <svg width="11" height="12" viewBox="0 0 11 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M1 3h9" /><path d="M3.5 3V2a1 1 0 011-1h2a1 1 0 011 1v1" /><path d="M8.5 3l-.4 7a1 1 0 01-1 .9H3.9a1 1 0 01-1-.9L2.5 3" /><path d="M4.5 5.5v3M6.5 5.5v3" />
-            </svg>
-          </button>
         )}
       </div>
 
@@ -320,381 +299,6 @@ function PaletteHeader({
 
       {/* ── OKLCH badge ── */}
       <OKLCHBadge hex={color} />
-
-      {/* ── Save to codebase (custom only) ── */}
-      {isCustom && (
-        <button
-          onClick={e => { e.stopPropagation(); onSaveToCode?.(); }}
-          draggable={false}
-          onMouseDown={e => e.stopPropagation()}
-          title="Generate the code snippet to add this color permanently to colorData.js"
-          style={{
-            marginTop: 8, width: "100%", padding: "5px 0", fontSize: 9.5, fontWeight: 600,
-            fontFamily: "'SF Mono',monospace", letterSpacing: "0.03em",
-            background: "#f0fdf4", color: "#16a34a",
-            border: "1px solid #bbf7d0", borderRadius: 7, cursor: "pointer",
-            transition: "background 0.15s, border-color 0.15s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = "#dcfce7"; e.currentTarget.style.borderColor = "#86efac"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "#f0fdf4"; e.currentTarget.style.borderColor = "#bbf7d0"; }}
-        >
-          ↑ Save to codebase
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── Save to Codebase Modal ───────────────────────────────────────────────────
-
-const GH_OWNER = "niravbhatt1317";
-const GH_REPO  = "motadata-swatch-generator";
-const GH_TOKEN = import.meta.env.VITE_GITHUB_TOKEN;
-
-async function pushPresetToGitHub(name, color, step) {
-  const headers = {
-    Authorization: `Bearer ${GH_TOKEN}`,
-    Accept: "application/vnd.github+json",
-    "Content-Type": "application/json",
-  };
-  const apiFile = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/src/colorData.js`;
-
-  // 1. Fetch current file (need content + sha for the PUT)
-  const fileRes = await fetch(apiFile, { headers });
-  if (!fileRes.ok) throw new Error(`GitHub fetch failed: ${fileRes.status}`);
-  const { content: b64, sha } = await fileRes.json();
-
-  // 2. Decode → patch → encode
-  const current = decodeURIComponent(escape(atob(b64.replace(/\n/g, ""))));
-  const entry   = `  { name:"${name}", color:"${color}", step:"${step ?? "50"}", tag:"custom" },`;
-  const updated = current.replace(
-    /(export const PRESETS = \[[\s\S]*?)(];)/,
-    (_, arr, close) => `${arr}${entry}\n${close}`
-  );
-
-  // 3. Commit back
-  const putRes = await fetch(apiFile, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({
-      message: `preset: add ${name} (${color})`,
-      content: btoa(unescape(encodeURIComponent(updated))),
-      sha,
-    }),
-  });
-  if (!putRes.ok) {
-    const err = await putRes.json();
-    throw new Error(err.message || `GitHub PUT failed: ${putRes.status}`);
-  }
-}
-
-async function removePresetFromGitHub(color, name) {
-  const headers = {
-    Authorization: `Bearer ${GH_TOKEN}`,
-    Accept: "application/vnd.github+json",
-    "Content-Type": "application/json",
-  };
-  const apiFile = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/src/colorData.js`;
-
-  const fileRes = await fetch(apiFile, { headers });
-  if (!fileRes.ok) throw new Error(`GitHub fetch failed: ${fileRes.status}`);
-  const { content: b64, sha } = await fileRes.json();
-
-  const current = decodeURIComponent(escape(atob(b64.replace(/\n/g, ""))));
-  const escaped = color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const updated = current.replace(
-    new RegExp(`\\n?[ \\t]*\\{ name:"[^"]*", color:"${escaped}", step:"[^"]*", tag:"custom" \\},`),
-    ""
-  );
-
-  if (updated === current) throw new Error("Entry not found in colorData.js");
-
-  const putRes = await fetch(apiFile, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({
-      message: `preset: remove ${name} (${color})`,
-      content: btoa(unescape(encodeURIComponent(updated))),
-      sha,
-    }),
-  });
-  if (!putRes.ok) {
-    const err = await putRes.json();
-    throw new Error(err.message || `GitHub PUT failed: ${putRes.status}`);
-  }
-}
-
-function DeleteConfirmModal({ palette, onClose, onDeleted }) {
-  const [status, setStatus] = useState("idle"); // idle | deleting | deleted | error
-  const [errMsg, setErrMsg] = useState("");
-
-  async function handleDelete() {
-    setStatus("deleting");
-    try {
-      await removePresetFromGitHub(palette.color, palette.name);
-      try {
-        localStorage.removeItem("my-palette-palettes");
-        localStorage.removeItem("my-palette-version");
-      } catch {}
-      setStatus("deleted");
-      onDeleted(palette.id);
-    } catch (e) {
-      setErrMsg(e.message);
-      setStatus("error");
-    }
-  }
-
-  function hardReload() {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("_cb");
-    url.searchParams.set("_cb", Date.now());
-    window.location.href = url.toString();
-  }
-
-  const busy = status === "deleting";
-
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-      onClick={!busy ? onClose : undefined}
-    >
-      <div
-        style={{ background: "#fff", borderRadius: 16, padding: 28, width: 380, maxWidth: "90vw", boxShadow: "0 24px 60px rgba(0,0,0,0.2)", fontFamily: "system-ui,-apple-system,sans-serif" }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#111" }}>Delete Custom Color</div>
-          {!busy && <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#bbb", fontSize: 20, lineHeight: 1 }}>×</button>}
-        </div>
-
-        {/* Color strip */}
-        <div style={{ display: "flex", gap: 2, marginBottom: 20, borderRadius: 8, overflow: "hidden", height: 24 }}>
-          {palette.swatches.map(sw => (
-            <div key={sw.step} style={{ flex: 1, background: sw.hex }} title={`${sw.step}: ${sw.hex}`} />
-          ))}
-        </div>
-
-        {status === "idle" && (
-          <>
-            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.7, marginBottom: 20 }}>
-              This will permanently remove <strong>{palette.name}</strong> ({palette.color}) from{" "}
-              <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>colorData.js</code>{" "}
-              via GitHub API. GitHub Actions will redeploy and the color will be gone for everyone.
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={onClose}
-                style={{ flex: 1, padding: "9px 0", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff", color: "#666", cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                style={{ flex: 2, padding: "9px 0", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer" }}
-              >
-                Delete from GitHub →
-              </button>
-            </div>
-          </>
-        )}
-
-        {status === "deleting" && (
-          <div style={{ textAlign: "center", padding: "24px 0" }}>
-            <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
-            <div style={{ fontSize: 13, color: "#555" }}>Removing from GitHub…</div>
-          </div>
-        )}
-
-        {status === "deleted" && (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px", background: "#fef2f2", borderRadius: 10, border: "1px solid #fecaca" }}>
-              <span style={{ fontSize: 20 }}>🗑️</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b" }}>Removed from GitHub!</div>
-                <div style={{ fontSize: 11, color: "#dc2626", marginTop: 2 }}>
-                  <a href={`https://github.com/${GH_OWNER}/${GH_REPO}/actions`} target="_blank" rel="noreferrer" style={{ color: "#dc2626" }}>View deployment →</a>
-                </div>
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.7, marginBottom: 18 }}>
-              GitHub Actions is rebuilding the site (~2 min). Click <strong>Reload</strong> to confirm the color is gone.
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <a
-                href={`https://github.com/${GH_OWNER}/${GH_REPO}/actions`}
-                target="_blank" rel="noreferrer"
-                style={{ flex: 1, padding: "9px 0", fontSize: 12, fontWeight: 600, textAlign: "center", borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff", color: "#555", textDecoration: "none", display: "block" }}
-              >
-                Check Actions
-              </a>
-              <button
-                onClick={hardReload}
-                style={{ flex: 2, padding: "9px 0", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none", background: "#111", color: "#fff", cursor: "pointer" }}
-              >
-                Reload (cache-busted) →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {status === "error" && (
-          <>
-            <div style={{ padding: "12px 14px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca", marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: "#991b1b", fontFamily: "'SF Mono',monospace" }}>{errMsg}</div>
-            </div>
-            <button
-              onClick={() => setStatus("idle")}
-              style={{ width: "100%", padding: "9px 0", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff", color: "#555", cursor: "pointer" }}
-            >
-              Try again
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SaveCodeModal({ palette, onClose }) {
-  const [status, setStatus] = useState("idle"); // idle | saving | saved | error
-  const [errMsg, setErrMsg] = useState("");
-
-  async function handleSave() {
-    setStatus("saving");
-    try {
-      await pushPresetToGitHub(palette.name, palette.color, palette.step);
-      // Drop saved palette state so fresh PRESETS load on next reload
-      try {
-        localStorage.removeItem("my-palette-palettes");
-        localStorage.removeItem("my-palette-version");
-      } catch {}
-      setStatus("saved");
-    } catch (e) {
-      setErrMsg(e.message);
-      setStatus("error");
-    }
-  }
-
-  function hardReload() {
-    // Add a cache-bust param so the browser always fetches the latest index.html
-    const url = new URL(window.location.href);
-    url.searchParams.delete("_cb");
-    url.searchParams.set("_cb", Date.now());
-    window.location.href = url.toString();
-  }
-
-  const busy = status === "saving";
-
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-      onClick={!busy ? onClose : undefined}
-    >
-      <div
-        style={{ background: "#fff", borderRadius: 16, padding: 28, width: 420, maxWidth: "90vw", boxShadow: "0 24px 60px rgba(0,0,0,0.2)", fontFamily: "system-ui,-apple-system,sans-serif" }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#111" }}>Save to Codebase</div>
-          {!busy && <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#bbb", fontSize: 20, lineHeight: 1 }}>×</button>}
-        </div>
-
-        {/* Color strip */}
-        <div style={{ display: "flex", gap: 2, marginBottom: 20, borderRadius: 8, overflow: "hidden", height: 24 }}>
-          {palette.swatches.map(sw => (
-            <div key={sw.step} style={{ flex: 1, background: sw.hex }} title={`${sw.step}: ${sw.hex}`} />
-          ))}
-        </div>
-
-        {/* Idle */}
-        {status === "idle" && (
-          <>
-            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.7, marginBottom: 20 }}>
-              Commits <strong>{palette.name}</strong> ({palette.color}) directly to{" "}
-              <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>colorData.js</code>{" "}
-              via GitHub API. GitHub Actions will redeploy in ~2 min and the color will appear as a permanent preset for everyone.
-            </div>
-            <button
-              onClick={handleSave}
-              style={{ width: "100%", padding: "11px 0", fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: "#111", color: "#fff", cursor: "pointer" }}
-            >
-              Save & Push to GitHub →
-            </button>
-          </>
-        )}
-
-        {/* Saving */}
-        {status === "saving" && (
-          <div style={{ textAlign: "center", padding: "24px 0" }}>
-            <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
-            <div style={{ fontSize: 13, color: "#555" }}>Committing to GitHub…</div>
-          </div>
-        )}
-
-        {/* Saved */}
-        {status === "saved" && (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
-              <span style={{ fontSize: 20 }}>✅</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d" }}>Committed to GitHub!</div>
-                <div style={{ fontSize: 11, color: "#16a34a", marginTop: 2 }}>
-                  <a href={`https://github.com/${GH_OWNER}/${GH_REPO}/actions`} target="_blank" rel="noreferrer"
-                    style={{ color: "#16a34a" }}>View deployment →</a>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.7, marginBottom: 18 }}>
-              GitHub Actions is rebuilding the site. This usually takes <strong>~2 minutes</strong>.
-              Once it's done, click <strong>Reload</strong> to see <strong>{palette.name}</strong> as a permanent preset.
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <a
-                href={`https://github.com/${GH_OWNER}/${GH_REPO}/actions`}
-                target="_blank" rel="noreferrer"
-                style={{
-                  flex: 1, padding: "9px 0", fontSize: 12, fontWeight: 600, textAlign: "center",
-                  borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff",
-                  color: "#555", textDecoration: "none", display: "block",
-                }}
-              >
-                Check Actions
-              </a>
-              <button
-                onClick={hardReload}
-                style={{
-                  flex: 2, padding: "9px 0", fontSize: 12, fontWeight: 700,
-                  borderRadius: 8, border: "none", background: "#111", color: "#fff", cursor: "pointer",
-                }}
-              >
-                Reload (cache-busted) →
-              </button>
-            </div>
-
-            <div style={{ marginTop: 10, fontSize: 10, color: "#ccc", textAlign: "center", fontFamily: "'SF Mono',monospace" }}>
-              reload bypasses browser cache — always loads the latest build
-            </div>
-          </div>
-        )}
-
-        {/* Error */}
-        {status === "error" && (
-          <>
-            <div style={{ padding: "12px 14px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca", marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: "#991b1b", fontFamily: "'SF Mono',monospace" }}>{errMsg}</div>
-            </div>
-            <button
-              onClick={() => setStatus("idle")}
-              style={{ width: "100%", padding: "9px 0", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff", color: "#555", cursor: "pointer" }}
-            >
-              Try again
-            </button>
-          </>
-        )}
-      </div>
     </div>
   );
 }
@@ -799,7 +403,6 @@ function ExportModal({ allSwatches, onClose }) {
 
 // ─── Palette Page ─────────────────────────────────────────────────────────────
 
-let _uid = PRESETS.length;
 
 const PALETTE_VERSION = 2; // bump when ref palettes change to reset saved state
 
@@ -815,8 +418,7 @@ function initPalettes() {
   localStorage.setItem("my-palette-version", String(PALETTE_VERSION));
   return PRESETS.map((p, i) => ({
     id: i, name: p.name, color: p.color, step: p.step, algo: "auto",
-    source: p.tag === "custom" ? "custom" : REFERENCE_PALETTES[p.color?.toLowerCase()] ? "ref" : "preset",
-    inCode: p.tag === "custom",
+    source: REFERENCE_PALETTES[p.color?.toLowerCase()] ? "ref" : "preset",
   }));
 }
 
@@ -827,8 +429,6 @@ export default function PalettePage() {
   const [showAnalysis, setShowAnalysis]   = useState(false);
   const [showExport, setShowExport]       = useState(false);
   const [alignedMode, setAlignedMode]     = useState(false);
-  const [saveCodePalette, setSaveCodePalette] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const allSwatches = useMemo(() =>
     palettes.map(p => ({ ...p, swatches: generatePalette(p.color, p.step, p.algo ?? "auto") })),
@@ -858,25 +458,9 @@ export default function PalettePage() {
     });
   }
 
-  function addPalette() {
-    setPalettes(prev => [{ id: ++_uid, name: "Custom", color: "#6366f1", step: "50", algo: "auto", source: "custom" }, ...prev]);
-  }
   function updatePalette(id, updates) {
     setPalettes(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
   }
-  function removePalette(id) {
-    setPalettes(prev => prev.filter(p => p.id !== id));
-  }
-
-  function handleRemove(id) {
-    const palette = allSwatches.find(p => p.id === id);
-    if (palette?.inCode) {
-      setDeleteTarget(palette);
-    } else {
-      removePalette(id);
-    }
-  }
-
   return (
     <div style={{ padding: "28px 24px 0" }}>
 
@@ -911,10 +495,6 @@ export default function PalettePage() {
               }}>
               {alignedMode ? "⊞ Aligned" : "⊟ Free flow"}
             </button>
-            <button onClick={addPalette}
-              style={{ padding: "7px 16px", fontSize: 11, borderRadius: 8, border: "1px solid #4f46e5", background: "#4f46e5", cursor: "pointer", color: "#fff", fontWeight: 700 }}>
-              + Add Color
-            </button>
           </div>
         </div>
 
@@ -942,8 +522,6 @@ export default function PalettePage() {
               onDrop={() => { reorder(dragId, p.id); setDragId(null); setDragOverId(null); }}
               onDragEnd={() => { setDragId(null); setDragOverId(null); }}
               onUpdate={updatePalette}
-              onRemove={handleRemove}
-              onSaveToCode={p.source === "custom" ? () => setSaveCodePalette(p) : undefined}
             />
           ))}
         </div>
@@ -1026,11 +604,6 @@ export default function PalettePage() {
             <span style={{ fontSize: 9, color: "#ddd" }}>→</span>
             <span style={{ fontSize: 9, fontFamily: "'SF Mono',monospace", color: "#999" }}>exact OKLCH-sourced · locked</span>
           </div>
-          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-            <span style={{ fontSize: 8, background: "#eff6ff", color: "#1d4ed8", borderRadius: 4, padding: "1px 5px", fontFamily: "'SF Mono',monospace", fontWeight: 700 }}>custom</span>
-            <span style={{ fontSize: 9, color: "#ddd" }}>→</span>
-            <span style={{ fontSize: 9, fontFamily: "'SF Mono',monospace", color: "#999" }}>user-added · auto-saved</span>
-          </div>
         </div>
 
         {showAnalysis && <AnalysisPanel />}
@@ -1043,14 +616,6 @@ export default function PalettePage() {
       </div>
 
       {showExport && <ExportModal allSwatches={allSwatches} onClose={() => setShowExport(false)} />}
-      {saveCodePalette && <SaveCodeModal palette={saveCodePalette} onClose={() => setSaveCodePalette(null)} />}
-      {deleteTarget && (
-        <DeleteConfirmModal
-          palette={deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onDeleted={id => { removePalette(id); setDeleteTarget(null); }}
-        />
-      )}
     </div>
   );
 }
