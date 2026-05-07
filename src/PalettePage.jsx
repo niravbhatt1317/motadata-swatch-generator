@@ -347,56 +347,83 @@ function PaletteHeader({
 
 // ─── Save to Codebase Modal ───────────────────────────────────────────────────
 
-const IS_DEV = import.meta.env.DEV;
+const GH_OWNER = "niravbhatt1317";
+const GH_REPO  = "motadata-swatch-generator";
+const GH_TOKEN = import.meta.env.VITE_GITHUB_TOKEN;
+
+async function pushPresetToGitHub(name, color, step) {
+  const headers = {
+    Authorization: `Bearer ${GH_TOKEN}`,
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+  };
+  const apiFile = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/src/colorData.js`;
+
+  // 1. Fetch current file (need content + sha for the PUT)
+  const fileRes = await fetch(apiFile, { headers });
+  if (!fileRes.ok) throw new Error(`GitHub fetch failed: ${fileRes.status}`);
+  const { content: b64, sha } = await fileRes.json();
+
+  // 2. Decode → patch → encode
+  const current = decodeURIComponent(escape(atob(b64.replace(/\n/g, ""))));
+  const entry   = `  { name:"${name}", color:"${color}", step:"${step ?? "50"}" },`;
+  const updated = current.replace(
+    /(export const PRESETS = \[[\s\S]*?)(];)/,
+    (_, arr, close) => `${arr}${entry}\n${close}`
+  );
+
+  // 3. Commit back
+  const putRes = await fetch(apiFile, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      message: `preset: add ${name} (${color})`,
+      content: btoa(unescape(encodeURIComponent(updated))),
+      sha,
+    }),
+  });
+  if (!putRes.ok) {
+    const err = await putRes.json();
+    throw new Error(err.message || `GitHub PUT failed: ${putRes.status}`);
+  }
+}
 
 function SaveCodeModal({ palette, onClose }) {
-  // "idle" | "saving" | "saved" | "manual"
-  const [status, setStatus] = useState(IS_DEV ? "idle" : "manual");
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState("idle"); // idle | saving | saved | error
+  const [errMsg, setErrMsg] = useState("");
 
-  const presetLine = `  { name:"${palette.name}", color:"${palette.color}", step:"${palette.step}" },`;
-
-  async function saveDirectly() {
+  async function handleSave() {
     setStatus("saving");
     try {
-      const res = await fetch("/api/save-preset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: palette.name, color: palette.color, step: palette.step }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatus("saved");
-        // Clear saved palette state so fresh PRESETS load on reload
-        try {
-          localStorage.removeItem("my-palette-palettes");
-          localStorage.removeItem("my-palette-version");
-        } catch {}
-        setTimeout(() => window.location.reload(), 1800);
-      } else {
-        setStatus("manual");
-      }
-    } catch {
-      setStatus("manual");
+      await pushPresetToGitHub(palette.name, palette.color, palette.step);
+      setStatus("saved");
+      // Drop saved palette state — fresh PRESETS will load on reload
+      try {
+        localStorage.removeItem("my-palette-palettes");
+        localStorage.removeItem("my-palette-version");
+      } catch {}
+      setTimeout(() => window.location.reload(), 2200);
+    } catch (e) {
+      setErrMsg(e.message);
+      setStatus("error");
     }
   }
 
-  function copySnippet() {
-    navigator.clipboard?.writeText(presetLine);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const busy = status === "saving";
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={status !== "saving" ? onClose : undefined}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: 460, maxWidth: "90vw", boxShadow: "0 24px 60px rgba(0,0,0,0.2)", fontFamily: "system-ui,-apple-system,sans-serif" }} onClick={e => e.stopPropagation()}>
-
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+      onClick={!busy ? onClose : undefined}
+    >
+      <div
+        style={{ background: "#fff", borderRadius: 16, padding: 28, width: 420, maxWidth: "90vw", boxShadow: "0 24px 60px rgba(0,0,0,0.2)", fontFamily: "system-ui,-apple-system,sans-serif" }}
+        onClick={e => e.stopPropagation()}
+      >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#111" }}>Save to Codebase</div>
-          {status !== "saving" && (
-            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#bbb", fontSize: 20, lineHeight: 1 }}>×</button>
-          )}
+          {!busy && <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#bbb", fontSize: 20, lineHeight: 1 }}>×</button>}
         </div>
 
         {/* Color strip */}
@@ -406,72 +433,52 @@ function SaveCodeModal({ palette, onClose }) {
           ))}
         </div>
 
-        {/* ── Dev mode: one-click save ── */}
-        {IS_DEV && status === "idle" && (
+        {/* Idle */}
+        {status === "idle" && (
           <>
-            <div style={{ fontSize: 12, color: "#666", marginBottom: 18, lineHeight: 1.6 }}>
-              This will write <strong>{palette.name}</strong> directly into{" "}
-              <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>colorData.js</code>,
-              commit, and push to GitHub. The page will reload and the color will appear as a permanent preset.
+            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.7, marginBottom: 20 }}>
+              Commits <strong>{palette.name}</strong> ({palette.color}) directly to{" "}
+              <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>colorData.js</code>{" "}
+              via GitHub API. GitHub Actions will redeploy in ~2 min and the color will appear as a permanent preset for everyone.
             </div>
             <button
-              onClick={saveDirectly}
-              style={{
-                width: "100%", padding: "11px 0", fontSize: 13, fontWeight: 700,
-                borderRadius: 10, border: "none",
-                background: "#111", color: "#fff", cursor: "pointer",
-              }}
+              onClick={handleSave}
+              style={{ width: "100%", padding: "11px 0", fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: "#111", color: "#fff", cursor: "pointer" }}
             >
               Save & Push to GitHub →
             </button>
           </>
         )}
 
-        {/* ── Saving spinner ── */}
+        {/* Saving */}
         {status === "saving" && (
-          <div style={{ textAlign: "center", padding: "20px 0" }}>
-            <div style={{ fontSize: 22, marginBottom: 10 }}>⏳</div>
-            <div style={{ fontSize: 13, color: "#555" }}>Writing to code and pushing…</div>
+          <div style={{ textAlign: "center", padding: "24px 0" }}>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
+            <div style={{ fontSize: 13, color: "#555" }}>Committing to GitHub…</div>
           </div>
         )}
 
-        {/* ── Success ── */}
+        {/* Saved */}
         {status === "saved" && (
-          <div style={{ textAlign: "center", padding: "20px 0" }}>
-            <div style={{ fontSize: 26, marginBottom: 10 }}>✅</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#16a34a", marginBottom: 6 }}>Saved & pushed!</div>
-            <div style={{ fontSize: 12, color: "#999" }}>GitHub is deploying. Reloading page…</div>
+          <div style={{ textAlign: "center", padding: "24px 0" }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#16a34a", marginBottom: 6 }}>Committed & pushed!</div>
+            <div style={{ fontSize: 12, color: "#aaa" }}>GitHub is deploying (~2 min). Reloading…</div>
           </div>
         )}
 
-        {/* ── Manual fallback (production / API error) ── */}
-        {status === "manual" && (
+        {/* Error */}
+        {status === "error" && (
           <>
-            <div style={{ fontSize: 12, color: "#666", marginBottom: 14, lineHeight: 1.6 }}>
-              Add this line to the <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11 }}>PRESETS</code> array in{" "}
-              <code style={{ fontFamily: "'SF Mono',monospace", fontSize: 11 }}>src/colorData.js</code>, then commit and push.
+            <div style={{ padding: "12px 14px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca", marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: "#991b1b", fontFamily: "'SF Mono',monospace" }}>{errMsg}</div>
             </div>
-            <div style={{ position: "relative", background: "#f8f8f8", borderRadius: 8, border: "1px solid #eee", padding: "12px 14px", marginBottom: 14 }}>
-              <pre style={{ margin: 0, fontSize: 11, fontFamily: "'SF Mono',monospace", color: "#333", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{presetLine}</pre>
-              <button
-                onClick={copySnippet}
-                style={{
-                  position: "absolute", top: 8, right: 8,
-                  padding: "3px 10px", fontSize: 10, fontWeight: 600,
-                  borderRadius: 6, border: "1px solid #e5e5e5",
-                  background: copied ? "#dcfce7" : "#fff",
-                  color: copied ? "#16a34a" : "#666",
-                  cursor: "pointer", fontFamily: "'SF Mono',monospace",
-                }}
-              >
-                {copied ? "✓ Copied" : "Copy"}
-              </button>
-            </div>
-            <div style={{ background: "#111", borderRadius: 8, padding: "10px 14px" }}>
-              <pre style={{ margin: 0, fontSize: 10, fontFamily: "'SF Mono',monospace", color: "#86efac", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
-                {`git add src/colorData.js\ngit commit -m "preset: add ${palette.name}"\ngit push`}
-              </pre>
-            </div>
+            <button
+              onClick={() => setStatus("idle")}
+              style={{ width: "100%", padding: "9px 0", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "1px solid #e5e5e5", background: "#fff", color: "#555", cursor: "pointer" }}
+            >
+              Try again
+            </button>
           </>
         )}
       </div>

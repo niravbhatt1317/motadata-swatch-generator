@@ -34,6 +34,7 @@ jobs:
         run: npm run build
         env:
           VITE_BASE_URL: /motadata-swatch-generator/
+          VITE_GITHUB_TOKEN: ${{ secrets.VITE_GITHUB_TOKEN }}
 
       - uses: actions/configure-pages@v4
 
